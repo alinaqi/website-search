@@ -21,7 +21,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 exa = Exa(api_key=os.getenv("EXA_API_KEY"))
 perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
 
-app = FastAPI(title="Image recognition APIs", description="APIs for image recognition using OpenAI and agents", version="0.1")
+app = FastAPI(title="Website Search", description="Website search using openai, exa and perplexity", version="0.1")
 
 # Enable CORS for your frontend
 app.add_middleware(
