@@ -81,6 +81,7 @@ This endpoint allows users to perform a search using either an image, a text que
   - `file` (optional): An image file (PNG or JPEG).
   - `search_string` (optional): A text query to search for content.
   - `website` (required): The website to perform the search on.
+  -`api_choice` : api to use exa.ai or perplexity.. default is exa
 
 - **Example Request**:
 
