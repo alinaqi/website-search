@@ -1,7 +1,7 @@
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional
+from typing import Optional, Union
 from PIL import Image
 import io
 import base64
@@ -40,7 +40,7 @@ prompt_for_products = """
 
 @app.post("/search_website/")
 async def search_website(
-    file: Optional[UploadFile] = File(None),
+    file: Optional[Union[UploadFile, str]] = File(None),
     search_string: Optional[str] = Form(None),
     website: str = Form(...)
 ):
@@ -52,9 +52,13 @@ async def search_website(
     combined_search_input = ""
 
     # If image is provided, process the image
-    if file:
+    if file and file.filename:
 
         try:
+            if file.content_type not in ["image/png", "image/jpeg", "image/jpg"]:
+                raise HTTPException(status_code=400, detail="Invalid file type. Only PNG and JPEG images are supported.")
+
+
             print("Loading image:", file.filename)
             image = Image.open(io.BytesIO(await file.read()))
 
