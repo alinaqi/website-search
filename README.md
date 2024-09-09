@@ -156,6 +156,6 @@ No license, feel free to do whatever your heart desires :)
 
 ## Contact
 
-If you have any questions, feel free to contact the project maintainer.
+If you have any questions, feel free to contact me. 
 
 ```
