@@ -11,10 +11,15 @@ import requests
 import json
 from exa_py import Exa
 from typing import List, Dict 
+import re
+
+from perplexity_client import get_perplexity_response
+
 
 # Set your OpenAI API key
 openai.api_key = os.getenv("OPENAI_API_KEY")
 exa = Exa(api_key=os.getenv("EXA_API_KEY"))
+perplexity_api_key = os.getenv("PERPLEXITY_API_KEY")
 
 app = FastAPI(title="Image recognition APIs", description="APIs for image recognition using OpenAI and agents", version="0.1")
 
@@ -42,7 +47,8 @@ prompt_for_products = """
 async def search_website(
     file: Optional[Union[UploadFile, str]] = File(None),
     search_string: Optional[str] = Form(None),
-    website: str = Form(...)
+    website: str = Form(...),
+    api_choice: str = Form(default="exa")  # Parameter to choose between 'exa' or 'perplexity'
 ):
     print("Website:", website)
     if not file and not search_string:
@@ -53,11 +59,9 @@ async def search_website(
 
     # If image is provided, process the image
     if file and file.filename:
-
         try:
             if file.content_type not in ["image/png", "image/jpeg", "image/jpg"]:
                 raise HTTPException(status_code=400, detail="Invalid file type. Only PNG and JPEG images are supported.")
-
 
             print("Loading image:", file.filename)
             image = Image.open(io.BytesIO(await file.read()))
@@ -119,37 +123,61 @@ async def search_website(
             # Use only the search string if no image was processed
             combined_search_input = get_intent_response
 
-    # Make the request to Exa API to find similar products
-    try:
-        exa_result = exa.search_and_contents(
-            combined_search_input,
-            type="auto",
-            num_results=3,
-            text=True,
-            include_domains=[website]
-        )
+    # Choose between Exa and Perplexity based on api_choice parameter
+    if api_choice.lower() == "exa":
+        # Make the request to Exa API to find similar products
+        try:
+            exa_result = exa.search_and_contents(
+                combined_search_input,
+                type="auto",
+                num_results=3,
+                text=True,
+                include_domains=[website]
+            )
 
-        print("Result from Exa API:", exa_result)
+            print("Result from Exa API:", exa_result)
 
-        # Access the "results" attribute directly and convert to JSON-serializable format
-        results_only = [
+            # Access the "results" attribute directly and convert to JSON-serializable format
+            results_only = [
+                {
+                    "url": res.url,
+                    "title": res.title,
+                    "text": res.text,
+                    "highlights": res.highlights,
+                    "summary": res.summary
+                }
+                for res in exa_result.results  # Assuming exa_result.results is a list of Result objects
+            ]
+
+            suggested_questions_response = await suggest_questions(search_string, results_only)
+
+            # Return only the "results" as a JSON response
+            return JSONResponse(content={"results": results_only, "suggested_questions": suggested_questions_response}, status_code=200)
+
+        except Exception as e:
+            return JSONResponse(content={"error": str(e)}, status_code=400)
+    
+    elif api_choice.lower() == "perplexity":
+            # Make the request to Perplexity API to generate a response
+        messages = [
             {
-                "url": res.url,
-                "title": res.title,
-                "text": res.text,
-                "highlights": res.highlights,
-                "summary": res.summary
-            }
-            for res in exa_result.results  # Assuming exa_result.results is a list of Result objects
+                "role": "system",
+                "content": f"Given the user's query along with the context, find the best results along with the urls. Use only the url: {website} \nReturn data as JSON",
+            },
+            {
+                "role": "user",
+                "content": f" user's query: {combined_search_input}",
+            },
         ]
 
-        suggested_questions_response = await suggest_questions(search_string, results_only)
+        response = get_perplexity_response(messages,search_website=website)
+        print("Perplexity API Raw Response:", response)
+        
+        
+        
+        return response
 
-        # Return only the "results" as a JSON response
-        return JSONResponse(content={"results": results_only, "suggested_questions": suggested_questions_response}, status_code=200)
-
-    except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=400)
+    
 
 intent_prompt = """
 Given the user query, and the provided website as context, convert to json with user's intent in a structured way as specified. 
@@ -217,6 +245,40 @@ async def suggest_questions(query: List[Dict], search_results: List[Dict]):
 
     return intent
 
+
+def extract_cleaned_content(response):
+    """
+    Extracts and cleans the content from the Perplexity API response.
+
+    Args:
+        response (dict): The response from the Perplexity API.
+
+    Returns:
+        dict: A cleaned dictionary parsed from the JSON content.
+    """
+    try:
+        # Access the message content correctly
+        content = response['choices'][0]['message']['content']  # Use dictionary key notation
+        
+        # Use regex to remove ```json, ``` and newlines
+        cleaned_content = re.sub(r'```json|```|\n', '', content).strip()
+
+        # Debugging: Print the cleaned content before parsing to JSON
+        print("Cleaned Content:", cleaned_content)
+
+        # Ensure the cleaned content is not empty and is valid JSON
+        if not cleaned_content:
+            raise ValueError("Cleaned content is empty")
+
+        # Convert the cleaned content to a Python dictionary
+        parsed_content = json.loads(cleaned_content)
+
+        return parsed_content
+
+    except (KeyError, json.JSONDecodeError, AttributeError, ValueError) as e:
+        # Handle potential errors in response structure or JSON parsing
+        print(f"Error extracting or parsing content: {e}")
+        return {"error": "Failed to extract and clean content from response."}
 
 
 @app.get("/")
